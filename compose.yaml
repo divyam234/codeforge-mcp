@@ -1,0 +1,65 @@
+name: codeforge
+
+services:
+  codeforge-tunnel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GO_VERSION: ${GO_VERSION:-1.25}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.22}
+        UV_VERSION: ${UV_VERSION:-0.11.24}
+        TUNNEL_CLIENT_VERSION: ${TUNNEL_CLIENT_VERSION:-v0.0.9--context-conduit-topaz}
+        DEV_UID: ${HOST_UID:-1000}
+        DEV_GID: ${HOST_GID:-1000}
+        EXTRA_APK_PACKAGES: ${EXTRA_APK_PACKAGES:-}
+    image: ${CODEFORGE_IMAGE:-codeforge-agent:latest}
+    restart: unless-stopped
+    environment:
+      CODEFORGE_WORKSPACE_ROOT: /workspace
+      CODEFORGE_STATE_DIR: /state
+      CODEFORGE_COMMAND_POLICY: unrestricted
+      CODEFORGE_SHELL: /bin/bash
+      CODEFORGE_ALLOW_DELETE: "true"
+      CODEFORGE_FOREGROUND_YIELD_MS: ${CODEFORGE_FOREGROUND_YIELD_MS:-10000}
+      CODEFORGE_MAX_CONCURRENT_PROCESSES: ${CODEFORGE_MAX_CONCURRENT_PROCESSES:-8}
+      CODEFORGE_PROCESS_TIMEOUT_SECONDS: ${CODEFORGE_PROCESS_TIMEOUT_SECONDS:-1800}
+      CONTROL_PLANE_TUNNEL_ID: ${CONTROL_PLANE_TUNNEL_ID:?Set CONTROL_PLANE_TUNNEL_ID in .env}
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:?Set CONTROL_PLANE_API_KEY in .env}
+      TUNNEL_HEALTH_PORT: "8080"
+      TUNNEL_LOG_LEVEL: ${TUNNEL_LOG_LEVEL:-info}
+      TUNNEL_LOG_FORMAT: ${TUNNEL_LOG_FORMAT:-struct-text}
+      TZ: ${TZ:-Europe/Warsaw}
+    volumes:
+      - type: bind
+        source: ${PROJECTS_DIR:-./workspace}
+        target: /workspace
+      - type: volume
+        source: codeforge-state
+        target: /state
+      - type: volume
+        source: developer-home
+        target: /home/dev
+      - type: volume
+        source: tunnel-state
+        target: /var/lib/tunnel-client
+    ports:
+      - "127.0.0.1:${TUNNEL_UI_PORT:-8080}:8080"
+    tmpfs:
+      - /tmp:rw,exec,nosuid,size=2g
+      - /run/tunnel-client:rw,nosuid,size=16m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/readyz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 20s
+
+volumes:
+  codeforge-state:
+    name: ${CODEFORGE_STATE_VOLUME:-codeforge-state}
+  developer-home:
+    name: ${CODEFORGE_HOME_VOLUME:-codeforge-home}
+  tunnel-state:
+    name: ${TUNNEL_STATE_VOLUME:-codeforge-tunnel-state}

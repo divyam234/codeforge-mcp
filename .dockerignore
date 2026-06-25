@@ -1,0 +1,10 @@
+.git
+.github
+bin
+coverage.out
+*.zip
+*.tar
+*.tar.gz
+workspace
+.env
+secrets

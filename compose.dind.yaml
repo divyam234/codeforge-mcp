@@ -1,0 +1,34 @@
+# Optional isolated Docker daemon. Use with:
+#   docker compose -f compose.yaml -f compose.dind.yaml up -d
+services:
+  codeforge-tunnel:
+    environment:
+      DOCKER_HOST: tcp://docker-engine:2375
+    depends_on:
+      docker-engine:
+        condition: service_healthy
+
+  docker-engine:
+    image: ${DOCKER_DIND_IMAGE:-docker:29.5-dind}
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command:
+      - --host=tcp://0.0.0.0:2375
+      - --host=unix:///var/run/docker.sock
+      - --storage-driver=overlay2
+    volumes:
+      - type: volume
+        source: docker-data
+        target: /var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+
+volumes:
+  docker-data:
+    name: ${CODEFORGE_DOCKER_VOLUME:-codeforge-docker-data}
