@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/killercrock/codeforge-mcp/internal/mcp"
-	"github.com/killercrock/codeforge-mcp/internal/plan"
-	proc "github.com/killercrock/codeforge-mcp/internal/process"
-	"github.com/killercrock/codeforge-mcp/internal/project"
-	"github.com/killercrock/codeforge-mcp/internal/workspace"
+	"github.com/divyam234/codeforge-mcp/internal/mcp"
+	"github.com/divyam234/codeforge-mcp/internal/plan"
+	proc "github.com/divyam234/codeforge-mcp/internal/process"
+	"github.com/divyam234/codeforge-mcp/internal/project"
+	"github.com/divyam234/codeforge-mcp/internal/workspace"
 )
 
 type Registry struct {
@@ -23,6 +23,10 @@ type Registry struct {
 }
 
 type NoInput struct{}
+
+type ProjectListInput struct {
+	ActiveOnly bool `json:"active_only,omitempty" jsonschema:"Return only the active project summary instead of the full list."`
+}
 
 type ProjectListOutput struct {
 	WorkspaceRoot string            `json:"workspace_root"`
@@ -48,6 +52,7 @@ type PlanListOutput struct {
 
 type PlanGetInput struct {
 	PlanID string `json:"plan_id,omitempty" jsonschema:"Plan ID. Defaults to the active plan."`
+	Select bool   `json:"select,omitempty" jsonschema:"Activate this plan before returning it."`
 }
 
 type PlanSelectInput struct {
@@ -202,8 +207,19 @@ type CommandRunInput struct {
 }
 
 type ProcessPollInput struct {
-	SessionID string `json:"session_id"`
+	SessionID string `json:"session_id,omitempty"`
 	Cursor    int64  `json:"cursor,omitempty"`
+	ListAll   bool   `json:"list_all,omitempty" jsonschema:"Return all process sessions instead of polling a specific one."`
+}
+
+type ProcessPollOutput struct {
+	SessionID string                `json:"session_id,omitempty"`
+	Status    string                `json:"status,omitempty"`
+	Output    string                `json:"output,omitempty"`
+	Cursor    int64                 `json:"cursor,omitempty"`
+	Truncated bool                  `json:"truncated,omitempty"`
+	Processes []proc.ProcessSummary `json:"processes,omitempty"`
+	Count     int                   `json:"count,omitempty"`
 }
 
 type ProcessListOutput struct {
@@ -235,14 +251,12 @@ type ForgetOutput struct {
 }
 
 func (r *Registry) Register(server *mcp.Server) {
-	mcp.AddTool(server, readTool("project_list", "List projects", "List projects under the workspace root and identify the active project."), r.projectList)
+	mcp.AddTool(server, readTool("project_list", "List projects", "List projects under the workspace root and identify the active project. Use active_only to return only the active project summary."), r.projectList)
 	mcp.AddTool(server, localWriteTool("project_create", "Create project", "Create a complete project directory from an empty, Go, Rust, Node, or Python template; initialize Git by default; and select it by default."), r.projectCreate)
 	mcp.AddTool(server, localWriteTool("project_select", "Select project", "Select which project subsequent file, Git, and command tools operate on."), r.projectSelect)
-	mcp.AddTool(server, readTool("project_info", "Active project", "Inspect the currently selected project."), r.projectInfo)
 	mcp.AddTool(server, readTool("plan_list", "List work plans", "List structured coding work plans for the active project and identify the active plan."), r.planList)
 	mcp.AddTool(server, localWriteTool("plan_create", "Create work plan", "Create and optionally activate a persistent coding plan with ordered phases, tasks, dependencies, priorities, and acceptance criteria."), r.planCreate)
-	mcp.AddTool(server, readTool("plan_get", "Inspect work plan", "Return a plan with progress, ready tasks, blocked tasks, notes, and verification evidence. Defaults to the active plan."), r.planGet)
-	mcp.AddTool(server, localWriteTool("plan_select", "Select work plan", "Select which plan is active for subsequent plan and task updates."), r.planSelect)
+	mcp.AddTool(server, readTool("plan_get", "Inspect or select work plan", "Return a plan with progress, ready tasks, blocked tasks, notes, and verification evidence. Defaults to the active plan. Use select to activate a plan."), r.planGet)
 	mcp.AddTool(server, localWriteTool("plan_update", "Update work plan", "Update plan metadata or lifecycle status. A plan cannot complete while phases or tasks remain open."), r.planUpdate)
 	mcp.AddTool(server, localWriteTool("phase_update", "Update plan phase", "Update a phase status, summary, or blocker. Completing a phase requires all tasks to be terminal."), r.phaseUpdate)
 	mcp.AddTool(server, localWriteTool("phase_add", "Add plan phase", "Append a new ordered phase with optional tasks when inspection reveals additional work."), r.phaseAdd)
@@ -262,14 +276,20 @@ func (r *Registry) Register(server *mcp.Server) {
 	mcp.AddTool(server, readTool("git_diff", "Git diff", "Return a bounded no-color Git diff for the active project."), r.gitDiff)
 	mcp.AddTool(server, unrestrictedCommandTool("command_run", "Run command", "Run an unrestricted command in the active project. Short commands complete inline; longer commands are promoted to a retained process session."), r.commandRun)
 	mcp.AddTool(server, unrestrictedCommandTool("process_start", "Start long-running process", "Start an unrestricted server, watcher, interactive command, or known long build as a retained background session."), r.processStart)
-	mcp.AddTool(server, readTool("process_poll", "Poll process", "Read incremental output and completion state from a retained process session."), r.processPoll)
-	mcp.AddTool(server, readTool("process_list", "List processes", "List retained running and completed process sessions."), r.processList)
+	mcp.AddTool(server, readTool("process_poll", "Poll or list processes", "Read incremental output and completion state from a retained process session. Use list_all with no session_id to list all processes."), r.processPoll)
 	mcp.AddTool(server, localWriteTool("process_write_stdin", "Write process stdin", "Write input to a retained running process and optionally close stdin."), r.processWrite)
 	mcp.AddTool(server, destructiveTool("process_cancel", "Cancel process", "Terminate a retained process and its process group."), r.processCancel)
 	mcp.AddTool(server, localWriteTool("process_forget", "Forget process", "Remove a completed process session and retained output from memory."), r.processForget)
 }
 
-func (r *Registry) projectList(context.Context, NoInput) (ProjectListOutput, error) {
+func (r *Registry) projectList(_ context.Context, input ProjectListInput) (ProjectListOutput, error) {
+	if input.ActiveOnly {
+		_, summary, err := r.Projects.Active()
+		if err != nil {
+			return ProjectListOutput{}, err
+		}
+		return ProjectListOutput{WorkspaceRoot: r.Projects.Root(), ActiveProject: summary.ID, Projects: []project.Summary{summary}, Count: 1}, nil
+	}
 	projects, err := r.Projects.List()
 	if err != nil {
 		return ProjectListOutput{}, err
@@ -283,11 +303,6 @@ func (r *Registry) projectCreate(_ context.Context, input project.CreateRequest)
 
 func (r *Registry) projectSelect(_ context.Context, input ProjectSelectInput) (ProjectOutput, error) {
 	value, err := r.Projects.Select(input.ID)
-	return ProjectOutput{Project: value}, err
-}
-
-func (r *Registry) projectInfo(context.Context, NoInput) (ProjectOutput, error) {
-	_, value, err := r.Projects.Active()
 	return ProjectOutput{Project: value}, err
 }
 
@@ -316,15 +331,12 @@ func (r *Registry) planGet(_ context.Context, input PlanGetInput) (plan.View, er
 	if err != nil {
 		return plan.View{}, err
 	}
-	return r.Plans.Get(projectInfo.ID, input.PlanID)
-}
-
-func (r *Registry) planSelect(_ context.Context, input PlanSelectInput) (plan.View, error) {
-	projectInfo, err := r.activeProjectSummary()
-	if err != nil {
-		return plan.View{}, err
+	if input.Select && input.PlanID != "" {
+		if _, err := r.Plans.Select(projectInfo.ID, input.PlanID); err != nil {
+			return plan.View{}, err
+		}
 	}
-	return r.Plans.Select(projectInfo.ID, input.PlanID)
+	return r.Plans.Get(projectInfo.ID, input.PlanID)
 }
 
 func (r *Registry) planUpdate(_ context.Context, input plan.UpdatePlanRequest) (plan.View, error) {
@@ -540,13 +552,16 @@ func (r *Registry) processStart(_ context.Context, input CommandInput) (proc.Sta
 	})
 }
 
-func (r *Registry) processPoll(_ context.Context, input ProcessPollInput) (proc.PollResult, error) {
-	return r.Processes.Poll(input.SessionID, input.Cursor)
-}
-
-func (r *Registry) processList(context.Context, NoInput) (ProcessListOutput, error) {
-	processes := r.Processes.List()
-	return ProcessListOutput{Processes: processes, Count: len(processes)}, nil
+func (r *Registry) processPoll(_ context.Context, input ProcessPollInput) (ProcessPollOutput, error) {
+	if input.ListAll && input.SessionID == "" {
+		processes := r.Processes.List()
+		return ProcessPollOutput{Processes: processes, Count: len(processes)}, nil
+	}
+	poll, err := r.Processes.Poll(input.SessionID, input.Cursor)
+	if err != nil {
+		return ProcessPollOutput{}, err
+	}
+	return ProcessPollOutput{SessionID: poll.SessionID, Status: poll.Status, Output: poll.Output, Cursor: poll.NextCursor, Truncated: poll.Truncated}, nil
 }
 
 func (r *Registry) processWrite(_ context.Context, input ProcessWriteInput) (ProcessWriteOutput, error) {

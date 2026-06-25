@@ -2,7 +2,7 @@
 
 CodeForge MCP is a model-neutral coding workspace runtime written in Go. ChatGPT or another MCP client performs the reasoning; CodeForge exposes typed project, persistent work-plan, file, editing, Git, and command tools.
 
-It uses the official `github.com/modelcontextprotocol/go-sdk` and runs as a native **stdio MCP server**. Stdout is reserved for MCP JSON-RPC. Logs go to stderr. There is no HTTP listener or application authentication.
+It uses the official `github.com/modelcontextprotocol/go-sdk` and runs as a **streamable HTTP MCP server** on port 9000. The HTTP server also exposes built-in OpenAPI and REST tool-call endpoints, so a separate MCP-to-OpenAPI proxy is not required. Logs go to stderr.
 
 ## Recommended workflow
 
@@ -32,15 +32,29 @@ Use a structured plan for non-trivial work. Plans are stored outside the reposit
 
 | Area | Tools |
 |---|---|
-| Projects | `project_list`, `project_create`, `project_select`, `project_info` |
-| Plans | `plan_list`, `plan_create`, `plan_get`, `plan_select`, `plan_update`, `phase_add`, `phase_update`, `task_add`, `task_update` |
+| Projects | `project_list`, `project_create`, `project_select` |
+| Plans | `plan_list`, `plan_create`, `plan_get`, `plan_update`, `phase_add`, `phase_update`, `task_add`, `task_update` |
 | Workspace | `workspace_info`, `workspace_tree`, `file_find` |
 | Read/search | `file_read`, `code_search` |
 | Edit | `file_write`, `file_edit`, `file_move`, `file_delete`, `patch_apply` |
 | Git | `git_status`, `git_diff` |
-| Commands | `command_run`, `process_start`, `process_poll`, `process_list`, `process_write_stdin`, `process_cancel`, `process_forget` |
+| Commands | `command_run`, `process_start`, `process_poll`, `process_write_stdin`, `process_cancel`, `process_forget` |
 
 Every tool is registered through the Go SDK's generic `mcp.AddTool`. Input and output JSON Schemas are inferred from Go structs, arguments and outputs are validated, and successful calls include MCP `structuredContent` rather than only JSON embedded in text.
+
+### Built-in OpenAPI
+
+The HTTP server exposes:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /mcp` | Streamable HTTP MCP endpoint. |
+| `GET /openapi.json` | OpenAPI 3.1 document generated from the registered tools. |
+| `POST /tools/{tool_name}` | REST-style JSON call for a registered tool. |
+
+Every generated OpenAPI operation includes `x-openai-isConsequential: false`. The OpenAPI `servers` URL is derived from the request host/scheme, including common forwarded proxy headers. MCP annotations such as `destructiveHint` remain accurate for MCP clients; the OpenAI extension is only for OpenAPI consumers.
+
+Set `CODEFORGE_API_KEY` to require authentication on `/mcp` and `/tools/*`. Use `Authorization: Bearer <key>` for OpenAI actions; `X-API-Key: <key>` is also accepted for non-OpenAI clients. `/openapi.json` remains public. If `CODEFORGE_API_KEY` is unset, HTTP authentication is disabled.
 
 ### MCP tool annotations
 
@@ -245,6 +259,8 @@ CODEFORGE_MAX_CONCURRENT_PROCESSES
 CODEFORGE_MAX_PROCESS_OUTPUT_BYTES
 CODEFORGE_PROCESS_TIMEOUT_SECONDS
 CODEFORGE_FOREGROUND_YIELD_MS
+CODEFORGE_HTTP_ADDRESS
+CODEFORGE_API_KEY
 ```
 
 CodeForge does not translate or hardcode any package-registry configuration. Builds and launched commands inherit the ordinary process environment. Configure Go with standard variables such as `GOPROXY`, `GOPRIVATE`, `GONOSUMDB`, and `GOAUTH` outside the application when required.
@@ -263,72 +279,64 @@ go vet ./...
 go build ./cmd/codeforge-mcp
 ```
 
-## Run as stdio MCP
+## Run the HTTP server
 
 ```bash
 export CODEFORGE_WORKSPACE_ROOT="$HOME/src"
+export CODEFORGE_HTTP_ADDRESS=":9000"
 ./bin/codeforge-mcp
 ```
 
-Generic client configuration:
+Endpoints:
 
-```json
-{
-  "mcpServers": {
-    "codeforge": {
-      "command": "/absolute/path/to/codeforge-mcp",
-      "env": {
-        "CODEFORGE_WORKSPACE_ROOT": "/absolute/path/to/projects",
-        "CODEFORGE_STATE_DIR": "/absolute/path/to/codeforge-state",
-        "CODEFORGE_COMMAND_POLICY": "unrestricted"
-      }
-    }
-  }
-}
-```
-
-For OpenAI Secure MCP Tunnel, configure the tunnel to launch the binary as its stdio MCP command. The tunnel is the connectivity boundary; CodeForge intentionally contains no application authentication.
+- MCP: `http://127.0.0.1:9000/mcp`
+- OpenAPI: `http://127.0.0.1:9000/openapi.json`
+- REST tools: `http://127.0.0.1:9000/tools/{tool_name}`
 
 ## Lean Alpine coding-agent container
 
-The container is designed for ChatGPT-driven coding rather than interactive
-terminal use. It bundles CodeForge, OpenAI Secure MCP Tunnel, and a focused
-polyglot toolchain:
+The container is designed for coding-agent use rather than interactive
+terminal use. It bundles CodeForge and a focused polyglot toolchain:
 
 - Go
 - Rust, Cargo, rustfmt, and Clippy
 - Python, pip, uv, and uvx
-- Node.js, npm, and pnpm
+- Bun, Node.js, npm, and pnpm
 - GCC/musl, Clang, CMake, and Ninja
 - Git, Git LFS, GitHub CLI, and OpenSSH client
 - Docker and Compose clients
 - curl, jq, ripgrep, fd, patch, rsync, and archive utilities
 
 It deliberately omits editors, terminal multiplexers, shell themes, HTTPie,
-Java, database clients, Kubernetes utilities, and other interactive extras. Add
-repository-specific system dependencies at build time with
-`EXTRA_APK_PACKAGES` instead of bloating every image.
+Java, database clients, Kubernetes utilities, and other interactive extras.
 
-The tunnel process starts as root only to supervise the stdio child.
-`codeforge-stdio` removes the tunnel API key and launches CodeForge as the
-unprivileged `dev` user.
+The container runs as the unprivileged `dev` user and serves the MCP streamable
+HTTP endpoint on port 9000.
 
 ### Start
 
 ```bash
 cp .env.docker.example .env
 mkdir -p workspace
-sed -i "s/^HOST_UID=.*/HOST_UID=$(id -u)/" .env
-sed -i "s/^HOST_GID=.*/HOST_GID=$(id -g)/" .env
-# Set CONTROL_PLANE_TUNNEL_ID and CONTROL_PLANE_API_KEY in .env.
 docker compose build
 docker compose up -d
-docker compose logs -f codeforge-tunnel
+docker compose logs -f codeforge
 ```
 
-The local tunnel dashboard is available only on loopback at
-`http://127.0.0.1:8080/ui` by default. Once `/readyz` is healthy, connect
-ChatGPT to the same tunnel ID.
+### Published image
+
+GitHub Actions publishes a multi-architecture image for `linux/amd64` and
+`linux/arm64` to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/divyam234/codeforge-mcp:latest
+```
+
+Tagged releases publish matching semver tags, for example:
+
+```bash
+docker pull ghcr.io/divyam234/codeforge-mcp:0.6.1
+```
 
 ### Persistent state
 
@@ -337,22 +345,7 @@ ChatGPT to the same tunnel ID.
 | `/workspace` | `${PROJECTS_DIR}` bind mount | Repositories and generated projects |
 | `/state` | `codeforge-state` volume | Plans, phases, tasks, and selected project state |
 | `/home/dev` | `codeforge-home` volume | Git/GitHub credentials and Go/Cargo/uv/npm caches |
-| `/var/lib/tunnel-client` | `codeforge-tunnel-state` volume | Tunnel profiles and operator state |
 | `/tmp` | tmpfs | Disposable build and temporary files |
-
-### Add repository-specific packages
-
-Set a space-separated package list in `.env`:
-
-```dotenv
-EXTRA_APK_PACKAGES=protobuf sqlite-dev libffi-dev
-```
-
-Then rebuild:
-
-```bash
-docker compose build --no-cache
-```
 
 ### Optional isolated Docker daemon
 

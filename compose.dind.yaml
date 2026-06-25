@@ -1,7 +1,7 @@
 # Optional isolated Docker daemon. Use with:
 #   docker compose -f compose.yaml -f compose.dind.yaml up -d
 services:
-  codeforge-tunnel:
+  codeforge:
     environment:
       DOCKER_HOST: tcp://docker-engine:2375
     depends_on:

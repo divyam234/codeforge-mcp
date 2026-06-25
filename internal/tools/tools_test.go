@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/killercrock/codeforge-mcp/internal/mcp"
-	"github.com/killercrock/codeforge-mcp/internal/plan"
-	proc "github.com/killercrock/codeforge-mcp/internal/process"
-	"github.com/killercrock/codeforge-mcp/internal/project"
+	"github.com/divyam234/codeforge-mcp/internal/mcp"
+	"github.com/divyam234/codeforge-mcp/internal/plan"
+	proc "github.com/divyam234/codeforge-mcp/internal/process"
+	"github.com/divyam234/codeforge-mcp/internal/project"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -117,13 +117,13 @@ func TestToolAnnotationsMatchRuntimeCapabilities(t *testing.T) {
 
 	expected := map[string]expectedAnnotations{}
 	for _, name := range []string{
-		"project_list", "project_info", "plan_list", "plan_get", "workspace_info", "workspace_tree", "file_find",
-		"file_read", "code_search", "git_status", "git_diff", "process_poll", "process_list",
+		"project_list", "plan_list", "plan_get", "workspace_info", "workspace_tree", "file_find",
+		"file_read", "code_search", "git_status", "git_diff", "process_poll",
 	} {
 		expected[name] = expectedAnnotations{readOnly: true, idempotent: true}
 	}
 	for _, name := range []string{
-		"project_create", "project_select", "plan_create", "plan_select", "plan_update", "phase_update", "phase_add", "task_add", "task_update",
+		"project_create", "project_select", "plan_create", "plan_update", "phase_update", "phase_add", "task_add", "task_update",
 		"file_write", "file_edit", "file_move", "patch_apply", "process_write_stdin", "process_forget",
 	} {
 		expected[name] = expectedAnnotations{}
@@ -305,7 +305,7 @@ func TestPatchGitAndRetainedProcessTools(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	listed := call(t, session, "process_list", map[string]any{}).StructuredContent.(map[string]any)
+	listed := call(t, session, "process_poll", map[string]any{"list_all": true}).StructuredContent.(map[string]any)
 	if listed["count"].(float64) < 1 {
 		t.Fatalf("process list empty: %#v", listed)
 	}

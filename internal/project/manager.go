@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/killercrock/codeforge-mcp/internal/workspace"
+	"github.com/divyam234/codeforge-mcp/internal/workspace"
 )
 
 type Limits struct {

@@ -2,12 +2,17 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -21,6 +26,10 @@ type helloOutput struct {
 
 type emptyInput struct{}
 type emptyOutput struct{}
+
+type largeOutput struct {
+	Data string `json:"data"`
+}
 
 func testServer() *Server {
 	server := NewServer("test", "1", "instructions", slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -119,4 +128,195 @@ func TestDuplicateToolPanics(t *testing.T) {
 		}
 	}()
 	AddTool(server, spec, func(context.Context, emptyInput) (emptyOutput, error) { return emptyOutput{}, nil })
+}
+
+func TestOpenAPIOperationsAreNotConsequential(t *testing.T) {
+	doc := testServer().OpenAPI()
+	paths, ok := doc["paths"].(map[string]any)
+	if !ok || len(paths) == 0 {
+		t.Fatalf("OpenAPI paths missing: %#v", doc["paths"])
+	}
+	for path, pathItem := range paths {
+		operations, ok := pathItem.(map[string]any)
+		if !ok {
+			t.Fatalf("path item %s is not an object: %#v", path, pathItem)
+		}
+		for method, operation := range operations {
+			op, ok := operation.(map[string]any)
+			if !ok {
+				t.Fatalf("operation %s %s is not an object: %#v", method, path, operation)
+			}
+			if value, ok := op["x-openai-isConsequential"].(bool); !ok || value {
+				t.Fatalf("operation %s %s missing x-openai-isConsequential=false: %#v", method, path, op["x-openai-isConsequential"])
+			}
+		}
+	}
+}
+
+func TestOpenAPIHandlerReturnsJSON(t *testing.T) {
+	server := testServer()
+	req := httptest.NewRequest(http.MethodGet, "http://codeforge.local/openapi.json", nil)
+	rec := httptest.NewRecorder()
+	server.handleOpenAPI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode OpenAPI JSON: %v", err)
+	}
+	if doc["openapi"] != "3.1.0" {
+		t.Fatalf("unexpected OpenAPI version: %#v", doc["openapi"])
+	}
+	servers := doc["servers"].([]any)
+	serverInfo := servers[0].(map[string]any)
+	if serverInfo["url"] != "http://codeforge.local" {
+		t.Fatalf("unexpected server URL: %#v", serverInfo["url"])
+	}
+}
+
+func TestOpenAPIHandlerUsesForwardedServerURL(t *testing.T) {
+	server := testServer()
+	req := httptest.NewRequest(http.MethodGet, "http://internal:9000/openapi.json", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "example.com")
+	rec := httptest.NewRecorder()
+	server.handleOpenAPI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode OpenAPI JSON: %v", err)
+	}
+	servers := doc["servers"].([]any)
+	serverInfo := servers[0].(map[string]any)
+	if serverInfo["url"] != "https://example.com" {
+		t.Fatalf("unexpected server URL: %#v", serverInfo["url"])
+	}
+}
+
+func TestRESTToolCallInvokesRegisteredHandler(t *testing.T) {
+	server := testServer()
+	req := httptest.NewRequest(http.MethodPost, "/tools/hello", strings.NewReader(`{"name":"REST"}`))
+	rec := httptest.NewRecorder()
+	server.handleToolCall(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var output helloOutput
+	if err := json.Unmarshal(rec.Body.Bytes(), &output); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if output.Message != "hello REST" {
+		t.Fatalf("unexpected output: %#v", output)
+	}
+}
+
+func TestHTTPHandlerAllowsRequestsWhenAPIKeyIsUnset(t *testing.T) {
+	server := testServer()
+	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	rec := httptest.NewRecorder()
+	server.HTTPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHTTPHandlerRequiresAPIKeyWhenConfigured(t *testing.T) {
+	server := testServer()
+	server.SetAPIKey("secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/tools/hello", strings.NewReader(`{"name":"REST"}`))
+	rec := httptest.NewRecorder()
+	server.HTTPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status without key = %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/tools/hello", strings.NewReader(`{"name":"REST"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	server.HTTPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status with bearer key = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/tools/hello", strings.NewReader(`{"name":"REST"}`))
+	req.Header.Set("X-API-Key", "secret")
+	rec = httptest.NewRecorder()
+	server.HTTPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status with x-api-key = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOpenAPIEndpointStaysPublicWhenAPIKeyConfigured(t *testing.T) {
+	server := testServer()
+	server.SetAPIKey("secret")
+	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	rec := httptest.NewRecorder()
+	server.HTTPHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOpenAPIIncludesSecurityWhenAPIKeyConfigured(t *testing.T) {
+	server := testServer()
+	if _, ok := server.OpenAPI()["security"]; ok {
+		t.Fatal("security should be absent when API key is unset")
+	}
+	server.SetAPIKey("secret")
+	if _, ok := server.OpenAPI()["security"]; !ok {
+		t.Fatal("security missing when API key is configured")
+	}
+}
+
+func TestRESTToolCallRejectsOversizedRequest(t *testing.T) {
+	server := testServer()
+	req := httptest.NewRequest(http.MethodPost, "/tools/hello", strings.NewReader(strings.Repeat("x", maxActionPayloadBytes+1)))
+	rec := httptest.NewRecorder()
+	server.handleToolCall(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRESTToolCallRejectsOversizedResponse(t *testing.T) {
+	server := NewServer("test", "1", "instructions", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	AddTool(server, ToolSpec{Name: "large", Title: "Large", Description: "large"}, func(context.Context, emptyInput) (largeOutput, error) {
+		return largeOutput{Data: strings.Repeat("x", maxActionPayloadBytes)}, nil
+	})
+	req := httptest.NewRequest(http.MethodPost, "/tools/large", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	server.handleToolCall(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOpenAPITrimsDescriptionsToActionLimits(t *testing.T) {
+	server := NewServer("test", "1", strings.Repeat("i", maxOpenAPIDescription+1), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	AddTool(server, ToolSpec{Name: "long", Title: strings.Repeat("t", maxOpenAPIDescription+1), Description: strings.Repeat("d", maxOpenAPIDescription+1)}, func(context.Context, helloInput) (helloOutput, error) {
+		return helloOutput{}, nil
+	})
+	doc := server.OpenAPI()
+	info := doc["info"].(map[string]any)
+	if len(info["description"].(string)) > maxOpenAPIDescription {
+		t.Fatal("info description was not trimmed")
+	}
+	paths := doc["paths"].(map[string]any)
+	operation := paths["/tools/long"].(map[string]any)["post"].(map[string]any)
+	if len(operation["summary"].(string)) > maxOpenAPIDescription || len(operation["description"].(string)) > maxOpenAPIDescription {
+		t.Fatalf("operation descriptions were not trimmed: %#v", operation)
+	}
+}
+
+func TestSchemaDescriptionsTrimToActionLimits(t *testing.T) {
+	schema := &jsonschema.Schema{Description: strings.Repeat("s", maxSchemaDescription+1)}
+	trimSchemaDescriptions(schema)
+	if len(schema.Description) > maxSchemaDescription {
+		t.Fatal("schema description was not trimmed")
+	}
 }

@@ -624,7 +624,7 @@ func (m *Manager) lookupPlanLocked(projectID, planID string) (*Plan, error) {
 		planID = ps.ActivePlanID
 	}
 	if planID == "" {
-		return nil, fmt.Errorf("no active plan for project %q; call plan_list then plan_select, or plan_create", projectID)
+		return nil, fmt.Errorf("no active plan for project %q; call plan_list then plan_get(select=true), or plan_create", projectID)
 	}
 	p := ps.Plans[planID]
 	if p == nil {

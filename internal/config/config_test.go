@@ -14,6 +14,7 @@ func TestLoadStdioConfiguration(t *testing.T) {
 	t.Setenv("CODEFORGE_STATE_DIR", stateDir)
 	t.Setenv("CODEFORGE_COMMAND_POLICY", "unrestricted")
 	t.Setenv("CODEFORGE_FOREGROUND_YIELD_MS", "2500")
+	t.Setenv("CODEFORGE_API_KEY", "test-key")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -23,6 +24,9 @@ func TestLoadStdioConfiguration(t *testing.T) {
 	}
 	if cfg.ForegroundYield != 2500*time.Millisecond {
 		t.Fatalf("unexpected foreground yield: %v", cfg.ForegroundYield)
+	}
+	if cfg.APIKey != "test-key" {
+		t.Fatalf("unexpected API key: %q", cfg.APIKey)
 	}
 	if runtime.GOOS != "windows" && cfg.Shell == "" {
 		t.Fatal("default shell missing")
