@@ -66,6 +66,7 @@ RUN set -eux; \
       rust-clippy \
       rustfmt \
       sed \
+      su-exec \
       tar \
       tini \
       tzdata \
@@ -78,10 +79,11 @@ RUN set -eux; \
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
 COPY --from=bun-bin /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=codeforge-build /out/codeforge-mcp /usr/local/bin/codeforge-mcp
+COPY docker/entrypoint.sh /usr/local/bin/codeforge-entrypoint
 
 RUN set -eux; \
-    addgroup -S dev; \
-    adduser -S -D -G dev -s /bin/bash dev; \
+    addgroup -S -g 1000 dev; \
+    adduser -S -D -H -u 1000 -G dev -s /bin/bash dev; \
     git lfs install --system; \
     mkdir -p \
       /workspace \
@@ -92,7 +94,7 @@ RUN set -eux; \
       /home/dev/.local/share \
       /home/dev/go/bin; \
     chown -R dev:dev /workspace /state /home/dev; \
-    chmod 0755 /usr/local/bin/codeforge-mcp; \
+    chmod 0755 /usr/local/bin/codeforge-mcp /usr/local/bin/codeforge-entrypoint; \
     echo 'export PATH="/home/dev/.local/bin:/home/dev/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"' \
       > /etc/profile.d/codeforge.sh
 
@@ -115,6 +117,8 @@ ENV HOME=/home/dev \
     CODEFORGE_SHELL=/bin/bash \
     CODEFORGE_ALLOW_DELETE=true \
     CODEFORGE_FOREGROUND_YIELD_MS=10000 \
+    PUID=1000 \
+    PGID=1000 \
     UV_CACHE_DIR=/home/dev/.cache/uv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
@@ -133,5 +137,6 @@ WORKDIR /workspace
 EXPOSE 9000
 VOLUME ["/workspace", "/state", "/home/dev"]
 
-USER dev
+USER root
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/codeforge-entrypoint"]
 CMD ["/usr/local/bin/codeforge-mcp"]

@@ -318,10 +318,16 @@ HTTP endpoint on port 9000.
 ```bash
 cp .env.docker.example .env
 mkdir -p workspace
+sed -i "s/^PUID=.*/PUID=$(id -u)/" .env
+sed -i "s/^PGID=.*/PGID=$(id -g)/" .env
 docker compose build
 docker compose up -d
 docker compose logs -f codeforge
 ```
+
+`PUID` and `PGID` are applied at container startup so files created in the
+bind-mounted workspace use the host user's ownership without baking host IDs
+into the image.
 
 ### Published image
 
