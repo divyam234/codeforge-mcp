@@ -85,14 +85,7 @@ RUN set -eux; \
     addgroup -S -g 1000 dev; \
     adduser -S -D -H -u 1000 -G dev -s /bin/bash dev; \
     git lfs install --system; \
-    mkdir -p \
-      /workspace \
-      /state \
-      /home/dev/.cache \
-      /home/dev/.config \
-      /home/dev/.local/bin \
-      /home/dev/.local/share \
-      /home/dev/go/bin; \
+    mkdir -p /workspace /state /home/dev; \
     chown -R dev:dev /workspace /state /home/dev; \
     chmod 0755 /usr/local/bin/codeforge-mcp /usr/local/bin/codeforge-entrypoint; \
     echo 'export PATH="/home/dev/.local/bin:/home/dev/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"' \

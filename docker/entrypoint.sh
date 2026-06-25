@@ -43,7 +43,13 @@ if ! id dev >/dev/null 2>&1; then
   adduser -S -D -H -u "$uid" -G "$group" -s /bin/bash dev
 fi
 
-mkdir -p /home/dev /state
+mkdir -p \
+  /home/dev/.cache \
+  /home/dev/.config \
+  /home/dev/.local/bin \
+  /home/dev/.local/share \
+  /home/dev/go/bin \
+  /state
 chown -R dev:"$group" /home/dev /state
 
 exec su-exec dev:"$group" "$@"

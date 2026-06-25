@@ -327,7 +327,8 @@ docker compose logs -f codeforge
 
 `PUID` and `PGID` are applied at container startup so files created in the
 bind-mounted workspace use the host user's ownership without baking host IDs
-into the image.
+into the image. The container starts as root only for this entrypoint setup,
+then runs CodeForge as the mapped `dev` user.
 
 ### Published image
 
