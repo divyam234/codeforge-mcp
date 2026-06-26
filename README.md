@@ -2,7 +2,7 @@
 
 CodeForge MCP is a model-neutral coding workspace runtime written in Go. ChatGPT or another MCP client performs the reasoning; CodeForge exposes typed project, persistent work-plan, file, editing, Git, and command tools.
 
-It uses the official `github.com/modelcontextprotocol/go-sdk` and runs as a **streamable HTTP MCP server** on port 9000. The HTTP server also exposes built-in OpenAPI and REST tool-call endpoints, so a separate MCP-to-OpenAPI proxy is not required. Logs go to stderr.
+It uses the official `github.com/modelcontextprotocol/go-sdk` and runs as a **streamable HTTP MCP server** on port 8080. The HTTP server also exposes built-in OpenAPI and REST tool-call endpoints, so a separate MCP-to-OpenAPI proxy is not required. Logs go to stderr.
 
 ## Recommended workflow
 
@@ -283,15 +283,15 @@ go build ./cmd/codeforge-mcp
 
 ```bash
 export CODEFORGE_WORKSPACE_ROOT="$HOME/src"
-export CODEFORGE_HTTP_ADDRESS=":9000"
+export CODEFORGE_HTTP_ADDRESS=":8080"
 ./bin/codeforge-mcp
 ```
 
 Endpoints:
 
-- MCP: `http://127.0.0.1:9000/mcp`
-- OpenAPI: `http://127.0.0.1:9000/openapi.json`
-- REST tools: `http://127.0.0.1:9000/tools/{tool_name}`
+- MCP: `http://127.0.0.1:8080/mcp`
+- OpenAPI: `http://127.0.0.1:8080/openapi.json`
+- REST tools: `http://127.0.0.1:8080/tools/{tool_name}`
 
 ## Lean Alpine coding-agent container
 
@@ -311,7 +311,7 @@ It deliberately omits editors, terminal multiplexers, shell themes, HTTPie,
 Java, database clients, Kubernetes utilities, and other interactive extras.
 
 The container runs as the unprivileged `dev` user and serves the MCP streamable
-HTTP endpoint on port 9000.
+HTTP endpoint on port 8080.
 
 ### Start
 

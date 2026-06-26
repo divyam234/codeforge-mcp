@@ -91,7 +91,7 @@ func Load() (Config, error) {
 		MaxProcessOutput:      envInt("CODEFORGE_MAX_PROCESS_OUTPUT_BYTES", 8<<20),
 		DefaultProcessTimeout: time.Duration(envInt("CODEFORGE_PROCESS_TIMEOUT_SECONDS", 600)) * time.Second,
 		ForegroundYield:       time.Duration(yieldMS) * time.Millisecond,
-		HTTPAddress:           env("CODEFORGE_HTTP_ADDRESS", ":9000"),
+		HTTPAddress:           env("CODEFORGE_HTTP_ADDRESS", ":8080"),
 		APIKey:                strings.TrimSpace(os.Getenv("CODEFORGE_API_KEY")),
 	}, nil
 }

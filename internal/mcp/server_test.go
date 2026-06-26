@@ -177,7 +177,7 @@ func TestOpenAPIHandlerReturnsJSON(t *testing.T) {
 
 func TestOpenAPIHandlerUsesForwardedServerURL(t *testing.T) {
 	server := testServer()
-	req := httptest.NewRequest(http.MethodGet, "http://internal:9000/openapi.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://internal:8080/openapi.json", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "example.com")
 	rec := httptest.NewRecorder()

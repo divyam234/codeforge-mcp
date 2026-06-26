@@ -127,8 +127,7 @@ ENV HOME=/home/dev \
     PNPM_HOME=/home/dev/.local/share/pnpm
 
 WORKDIR /workspace
-EXPOSE 9000
-VOLUME ["/workspace", "/state", "/home/dev"]
+EXPOSE 8080
 
 USER root
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/codeforge-entrypoint"]
