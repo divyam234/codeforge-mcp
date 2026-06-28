@@ -98,7 +98,7 @@ COPY --from=bun-bin /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=codeforge-build /out/codeforge-mcp /usr/local/bin/codeforge-mcp
 
 RUN set -eux; \
-    adduser -S -D -H -G users -s /bin/bash dev; \
+    adduser -S -D -H -u 1000 -G users -s /bin/bash dev; \
     git lfs install --system; \
     mkdir -p \
       /workspace \
