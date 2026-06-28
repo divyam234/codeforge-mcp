@@ -34,26 +34,39 @@ RUN set -eux; \
       coreutils \
       curl \
       diffutils \
+      doas \
       docker-cli \
       docker-cli-compose \
       fd \
       file \
       findutils \
+      alsa-lib-dev \
+      fontconfig-dev \
       gawk \
       gcompat \
       git \
       git-lfs \
       github-cli \
+      glib-dev \
       grep \
       jq \
+      lld \
+      libva-dev \
+      libx11-dev \
+      libxcb-dev \
+      libxkbcommon-dev \
+      libxkbcommon-x11 \
       linux-headers \
+      mesa-dev \
       ninja \
       nodejs \
       npm \
       openssh-client \
+      openssh-keygen \
       openssl \
       openssl-dev \
       patch \
+      pipewire-dev \
       pkgconf \
       pnpm \
       procps \
@@ -66,11 +79,15 @@ RUN set -eux; \
       rust-clippy \
       rustfmt \
       sed \
-      su-exec \
       tar \
-      tini \
       tzdata \
       unzip \
+      vulkan-loader \
+      vulkan-loader-dev \
+      wayland-dev \
+      wayland-protocols \
+      xcb-util-dev \
+      xdg-desktop-portal \
       xz \
       zip \
       zlib-dev \
@@ -79,15 +96,29 @@ RUN set -eux; \
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
 COPY --from=bun-bin /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=codeforge-build /out/codeforge-mcp /usr/local/bin/codeforge-mcp
-COPY docker/entrypoint.sh /usr/local/bin/codeforge-entrypoint
 
 RUN set -eux; \
-    addgroup -S -g 1000 dev; \
-    adduser -S -D -H -u 1000 -G dev -s /bin/bash dev; \
+    adduser -S -D -H -G users -s /bin/bash dev; \
     git lfs install --system; \
-    mkdir -p /workspace /state /home/dev; \
-    chown -R dev:dev /workspace /state /home/dev; \
-    chmod 0755 /usr/local/bin/codeforge-mcp /usr/local/bin/codeforge-entrypoint; \
+    mkdir -p \
+      /workspace \
+      /state \
+      /home/dev/.cache/bun \
+      /home/dev/.cache/go-build \
+      /home/dev/.cache/npm \
+      /home/dev/.cache/pip \
+      /home/dev/.cache/uv \
+      /home/dev/.cargo \
+      /home/dev/.config \
+      /home/dev/.local/bin \
+      /home/dev/.local/share/pnpm \
+      /home/dev/.local/state \
+      /home/dev/go/bin \
+      /home/dev/go/pkg/mod; \
+    mkdir -p /etc/doas.d; \
+    printf 'permit nopass dev as root cmd /sbin/apk\n' > /etc/doas.d/dev-apk.conf; \
+    chown -R dev:users /workspace /state /home/dev; \
+    chmod 0755 /usr/local/bin/codeforge-mcp; \
     echo 'export PATH="/home/dev/.local/bin:/home/dev/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"' \
       > /etc/profile.d/codeforge.sh
 
@@ -110,8 +141,6 @@ ENV HOME=/home/dev \
     CODEFORGE_SHELL=/bin/bash \
     CODEFORGE_ALLOW_DELETE=true \
     CODEFORGE_FOREGROUND_YIELD_MS=10000 \
-    PUID=1000 \
-    PGID=1000 \
     UV_CACHE_DIR=/home/dev/.cache/uv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
@@ -129,6 +158,5 @@ ENV HOME=/home/dev \
 WORKDIR /workspace
 EXPOSE 8080
 
-USER root
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/codeforge-entrypoint"]
+USER dev
 CMD ["/usr/local/bin/codeforge-mcp"]

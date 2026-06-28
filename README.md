@@ -318,17 +318,13 @@ HTTP endpoint on port 8080.
 ```bash
 cp .env.docker.example .env
 mkdir -p workspace
-sed -i "s/^PUID=.*/PUID=$(id -u)/" .env
-sed -i "s/^PGID=.*/PGID=$(id -g)/" .env
 docker compose build
 docker compose up -d
 docker compose logs -f codeforge
 ```
 
-`PUID` and `PGID` are applied at container startup so files created in the
-bind-mounted workspace use the host user's ownership without baking host IDs
-into the image. The container starts as root only for this entrypoint setup,
-then runs CodeForge as the mapped `dev` user.
+The image creates and owns `/workspace`, `/state`, and `/home/dev` during the
+build, then runs CodeForge directly as the unprivileged `dev` user.
 
 ### Published image
 
